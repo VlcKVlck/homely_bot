@@ -1,15 +1,20 @@
 import logging
+import re
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ForceReply, KeyboardButton
+import gridfs
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ForceReply, \
+    KeyboardButton, InputFile
 from telegram.ext import CommandHandler, CallbackContext, Updater, MessageHandler, Filters, CallbackQueryHandler, \
     ConversationHandler
 
 import bot_settings
+import io
 
 import homelyDB_API
 from classes.Tool import Tool
 from classes import User
 
+fs_bucket = gridfs.GridFSBucket(homelyDB_API.homely_DB)
 # from classes.User import User
 
 logging.basicConfig(
@@ -28,6 +33,7 @@ EXPECT_CATEGORY_BUTTON_CLICK, EXPECT_IMG, EXPECT_IMG_BUTTON_CLICK, CALL_CATEGORY
 
 
 def start(update: Update, context: CallbackContext):
+    context.user_data['state'] =0
     print(update.to_json())
     chat_id = update.effective_chat.id
     logger.info(f"> Start chat #{chat_id}")
@@ -35,6 +41,7 @@ def start(update: Update, context: CallbackContext):
 
 
 def phone_number_handler(update: Update, context: CallbackContext):
+    # context.user_data['state'] =1
     ''' This gets executed on button click '''
     update.message.reply_text("This is exciting! We're thrilled you are part of this sharing community!")
     context.bot.send_message(chat_id=update.effective_chat.id,
@@ -44,7 +51,15 @@ def phone_number_handler(update: Update, context: CallbackContext):
 
 
 def set_name_handler(update: Update, context: CallbackContext):
+    # if not context.user_data['state'] ==1:
+    #     return
     phone_number = update.message.text
+    if not re.match(r"^9725\d{8}$", phone_number):
+        update.message.reply_text("Can't register phone. Phone number must be in the following form:" 
+                                  "972541234567 ")
+        return EXPECT_PHONE
+
+    context.user_data['phone'] = phone_number
     update.message.reply_text(f"Number saved. We will use {phone_number} when a borrower wants to contact you. "
                               "they will send you a Telegram message.")
 
@@ -53,10 +68,14 @@ def set_name_handler(update: Update, context: CallbackContext):
 
     return EXPECT_NAME
 
-
 def name_input_by_user(update: Update, context: CallbackContext):
     ''' The user's reply to the name prompt comes here  '''
+    # if not context.user_data['state'] ==1:
+    #     return
     name = update.message.text
+    if name[0]=='/':
+        return EXPECT_NAME
+
     context.user_data['name'] = name
     update.message.reply_text(f'Your tool is saved as {name[:100]}')
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Power Tools", callback_data='powertools')],
@@ -76,6 +95,8 @@ def name_input_by_user(update: Update, context: CallbackContext):
 
 def category_button_click_handler(update: Update, context: CallbackContext):
     ''' This gets executed on button click '''
+    if not context.user_data['state'] ==1:
+        return
     category = update.callback_query.data
     context.user_data['category'] = category
     context.bot.send_message(chat_id=update.effective_chat.id,
@@ -86,20 +107,23 @@ def category_button_click_handler(update: Update, context: CallbackContext):
     return EXPECT_IMG
 
 def img_input_by_user(update: Update, context: CallbackContext):
+    # if not context.user_data['state'] ==1:
+    #     return
     chat_id = update.effective_chat.id
     file_id = update.message.photo[-1].file_id
     new_file = context.bot.get_file(file_id)
-    new_file.download(f'image_{file_id[:5]}.jpg')
+    # new_file.download(f'image_{file_id[:5]}.jpg')
     print(f'image_{file_id[:5]}.jpg')
     user_id = int(update.message.from_user.id)
     user_name = str(update.message.from_user.first_name)
     print(context.user_data)
     tool_name = context.user_data['name']
     category = context.user_data['category']
+    phone_number = context.user_data['phone']
     tool = Tool(user_id, tool_name)
     user = User.BOTUser(user_id, user_name)
     logger.info(f'User: {user.user_id} {user.user_name}, Tool: {tool.user_id} {tool.name}')
-    homelyDB_API.add_tool(update, tool_name, category, user)
+    homelyDB_API.add_tool(update, tool_name, category, phone_number, user)
     ## SEND IFNO TO DB
     update.message.reply_text("Got your image!")
     update.message.reply_text("Your tool has been added and now available for borrowing. \n Thanks for being such a"
@@ -109,6 +133,8 @@ def img_input_by_user(update: Update, context: CallbackContext):
     context.user_data.get('category')
     gif_url='https://media.giphy.com/media/xTiN0CNHgoRf1Ha7CM/giphy.gif'
     context.bot.send_animation(chat_id=chat_id, animation=gif_url)
+    context.user_data['state'] = 0
+
     return ConversationHandler.END
 
 
@@ -142,6 +168,9 @@ _handlers['land_conversation_handler'] = ConversationHandler(
 EXPECT_CATEGORY_SELECT_BUTTON_CLICK, EXPECT_ITEM_SELECTION = range(2)
 
 def select_category_by_user(update: Update, context: CallbackContext):
+    print("entered")
+    # context.user_data['state'] = 2
+
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Power Tools", callback_data='powertools')],
                                      [InlineKeyboardButton("Furniture",
                                                            callback_data='furniture')],
@@ -159,37 +188,41 @@ def select_category_by_user(update: Update, context: CallbackContext):
 
 def category_button_click_handler(update: Update, context: CallbackContext):
     ''' This gets executed on button click '''
+    # if not context.user_data['state'] ==2:
+    #     return
     category = update.callback_query.data
     context.user_data['category'] = category
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text=f'Fetching items under {category}')
-    ##get 5 items from DB
-    # for item in items:
-    keyboard = ReplyKeyboardMarkup([[KeyboardButton("Screwdriver Phillips", callback_data='item1')],
-                                     [KeyboardButton("Hammer",
-                                                           callback_data='item2')],
-                                     [KeyboardButton("Screwdriver Samsung",
-                                                           callback_data='item3')],
-                                     [KeyboardButton("Impact Drill",
-                                                           callback_data='item4')],
-                                     [KeyboardButton("Electric Saw",
-                                                           callback_data='item5')],
-                                     ])
+    items = homelyDB_API.get_list_by_category(category)
+
+    keyboard=[]
+    for item in items:
+        keyboard.append([KeyboardButton(f"{item['name']}")])
+
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text='These are the top five items currently available. '
-                                  'Select an item to borrow it', reply_markup=keyboard)
+                                  'Select an item to borrow it', reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return EXPECT_ITEM_SELECTION
 
 
 def get_item_info(update: Update, context: CallbackContext):
-    item = update.callback_query.data
-    #getinfo from DB
-    context.bot.send_message(chat_id=update.effective_chat.id,
+    # if not context.user_data['state'] ==1:
+    #     return
+    item = update.message.text
+    chat_id = update.effective_chat.id
+    image_d_ref = homelyDB_API.send_image(item, chat_id)
+    context.bot.send_message(chat_id=chat_id,
                              text='Here is the photo of your item:')
+    image = fs_bucket.open_download_stream(image_d_ref)
+    image_binary = io.BytesIO(image.read())
+    context.bot.send_photo(chat_id, photo=InputFile(image_binary))
+    num = homelyDB_API.send_phone(item, chat_id)
+    context.bot.send_message(chat_id=chat_id, text=f'Text the owner to arrange to pick up your tool:'
+                                                   f'\n '
+                                                   f'https://t.me/+{num}')
+    context.user_data['state'] =0
 
-    # photo = get from DB
-    # context.bot.send_photo(chat_id=update.effective_chat.id,
-    #                        photo=photo['file'])
     return ConversationHandler.END
 
 _handlers['borrow_conversation_handler'] = ConversationHandler(
@@ -197,7 +230,7 @@ _handlers['borrow_conversation_handler'] = ConversationHandler(
     fallbacks=[CommandHandler('cancel', cancel)],
     states={
         EXPECT_CATEGORY_SELECT_BUTTON_CLICK: [CallbackQueryHandler(category_button_click_handler)],
-        EXPECT_ITEM_SELECTION: [CallbackQueryHandler(get_item_info)],
+        EXPECT_ITEM_SELECTION: [MessageHandler(Filters.text, get_item_info)],
     }
 
     # per_message=True,
