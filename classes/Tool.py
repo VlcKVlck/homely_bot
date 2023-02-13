@@ -1,5 +1,5 @@
 class Tool:
-    def __init__(self, user_id, name, image_ref = None, type_of = None, category = None, availability = False):
+    def __init__(self, user_id, name, category = None, image_ref = None, type_of = None,  availability = False):
         self.user_id = user_id
         self.name = name
         self.type_of = type_of

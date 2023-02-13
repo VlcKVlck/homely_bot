@@ -95,15 +95,15 @@ def img_input_by_user(update: Update, context: CallbackContext):
     user_name = str(update.message.from_user.first_name)
     print(context.user_data)
     tool_name = context.user_data['name']
+    category = context.user_data['category']
     tool = Tool(user_id, tool_name)
     user = User.BOTUser(user_id, user_name)
     logger.info(f'User: {user.user_id} {user.user_name}, Tool: {tool.user_id} {tool.name}')
-    homelyDB_API.add_tool(update, tool_name, user)
-    # homelyDB_API.store_image_to_user(update, tool)
+    homelyDB_API.add_tool(update, tool_name, category, user)
     ## SEND IFNO TO DB
     update.message.reply_text("Got your image!")
     update.message.reply_text("Your tool has been added and now available for borrowing. \n Thanks for being such a"
-                              " great neighbor, neighbor! You can add another item "
+                              "great neighbor, neighbor! You can add another item "
                               "using /landtool or borrow from your neighbors using /borrowtool")
     context.user_data.get('name')
     context.user_data.get('category')
